@@ -25,7 +25,7 @@ def train(model, train_loader, optimizer, device):
         batch = batch.to(device)
         optimizer.zero_grad()
         y_pred = model(batch)
-        loss = F.cross_entropy(y_pred, batch.y)
+        loss = F.mse_loss(y_pred.squeeze(-1), batch.y)
         loss.backward()
         loss_all += loss.item() * batch.num_graphs
         optimizer.step()
@@ -34,17 +34,15 @@ def train(model, train_loader, optimizer, device):
 
 def eval(model, loader, device):
     model.eval()
-    y_pred = []
-    y_true = []
-    for batch in loader:
-        batch = batch.to(device)
+    error = 0
+    std = 1
+    for data in loader:
+        data = data.to(device)
         with torch.no_grad():
-            y_pred.append(model(batch).detach().cpu())
-            y_true.append(batch.y.detach().cpu())
-    return accuracy_score(
-        torch.concat(y_true, dim=0), 
-        np.argmax(torch.concat(y_pred, dim=0), axis=1)
-    ) * 100  # return percentage
+            y_pred = model(data)
+            # Mean Absolute Error using std (computed when preparing data)
+            error += (y_pred * std - data.y * std).abs().sum().item()
+    return error / len(loader.dataset)
 
 
 def _run_experiment(model, train_loader, val_loader, test_loader, n_epochs=100, verbose=True, device='cpu'):
