@@ -35,80 +35,68 @@ def train(model, train_loader, optimizer, device):
 def eval(model, loader, device):
     model.eval()
     error = 0
-    std = 1
-    for data in loader:
-        data = data.to(device)
+
+    for batch in loader:
+        data = batch.to(device)
         with torch.no_grad():
-            y_pred = model(data)
-            # Mean Absolute Error using std (computed when preparing data)
-            error += (y_pred * std - data.y * std).abs().sum().item()
-    return error / len(loader.dataset)
+            with torch.no_grad():
+                y_pred = model(data).squeeze(-1)
+                loss = F.mse_loss(y_pred.squeeze(-1), batch.y)
+                # Mean Absolute Error using std (computed when preparing data)
+                error += loss.item() * batch.num_graphs
+        return error / len(loader.dataset)
 
 
-def _run_experiment(model, train_loader, val_loader, test_loader, n_epochs=100, verbose=True, device='cpu'):
+def run_experiment(model, model_name, train_loader, val_loader, test_loader, rewire, k, p, seed, n_epochs=100):
+
+    print(f"Running experiment for {model_name}, training on {len(train_loader.dataset)} samples for {n_epochs} epochs.")
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    print("\nModel architecture:")
+    print(model)
     total_param = 0
     for param in model.parameters():
         total_param += np.prod(list(param.data.size()))
+    print(f'Total parameters: {total_param}')
     model = model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    # Adam optimizer with LR 1e-3
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    # LR scheduler which decays LR when validation metric doesn't improve
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='max', factor=0.9, patience=25, min_lr=0.00001)
-    
-    if verbose:
-        print(f"Running experiment for {type(model).__name__}.")
-        # print("\nModel architecture:")
-        # print(model)
-        print(f'Total parameters: {total_param}')
-        print("\nStart training:")
-    
-    best_val_acc = None
-    perf_per_epoch = [] # Track Test/Val performace vs. epoch (for plotting)
+        optimizer, mode='min', factor=0.9, patience=5, min_lr=0.00001)
+
+    print("\nStart training:")
+    best_val_error = None
+    perf_per_epoch = [] # Track Test/Val MAE vs. epoch (for plotting)
     t = time.time()
     for epoch in range(1, n_epochs+1):
+        # Call LR scheduler at start of each epoch
+        lr = scheduler.optimizer.param_groups[0]['lr']
+
         # Train model for one epoch, return avg. training loss
         loss = train(model, train_loader, optimizer, device)
-        
+
         # Evaluate model on validation set
-        val_acc = eval(model, val_loader, device)
-        
-        if best_val_acc is None or val_acc >= best_val_acc:
+        val_error = eval(model, val_loader, device)
+
+        if best_val_error is None or val_error <= best_val_error:
             # Evaluate model on test set if validation metric improves
-            test_acc = eval(model, test_loader, device)
-            best_val_acc = val_acc
+            test_error = eval(model, test_loader, device)
+            best_val_error = val_error
 
-        if epoch % 10 == 0 and verbose:
-            print(f'Epoch: {epoch:03d}, LR: {lr:.5f}, Loss: {loss:.5f}, '
-                  f'Val Acc: {val_acc:.3f}, Test Acc: {test_acc:.3f}')
-        
-        perf_per_epoch.append((test_acc, val_acc, epoch, type(model).__name__))
-        scheduler.step(val_acc)
-        lr = optimizer.param_groups[0]['lr']
-    
+        if epoch % 10 == 0:
+            # Print and track stats every 10 epochs
+            print(f'Epoch: {epoch:03d}, LR: {lr:5f}, Loss: {loss:.7f}, '
+                  f'Val MAE: {val_error:.7f}, Test MAE: {test_error:.7f}')
+
+        scheduler.step(val_error)
+        perf_per_epoch.append((test_error, val_error, epoch, model_name, rewire, k, p, seed))
+
     t = time.time() - t
-    train_time = t
-    if verbose:
-        print(f"\nDone! Training took {train_time:.2f}s. Best validation accuracy: {best_val_acc:.3f}, corresponding test accuracy: {test_acc:.3f}.")
-    
-    return best_val_acc, test_acc, train_time, perf_per_epoch
+    train_time = t/60
+    print(f"\nDone! Training took {train_time:.2f} mins. Best validation MAE: {best_val_error:.7f}, corresponding test MAE: {test_error:.7f}.")
 
-
-def run_experiment(model, train_loader, val_loader, test_loader, n_epochs=100, n_times=100, verbose=False, device='cpu'):
-    print(f"Running experiment for {type(model).__name__} ({device}).")
-    
-    best_val_acc_list = []
-    test_acc_list = []
-    train_time_list = []
-    for idx in tqdm(range(n_times)):
-        seed(idx) # set random seed
-        best_val_acc, test_acc, train_time, _ = _run_experiment(model, train_loader, val_loader, test_loader, n_epochs, verbose, device)
-        best_val_acc_list.append(best_val_acc)
-        test_acc_list.append(test_acc)
-        train_time_list.append(train_time)
-    
-    print(f'\nDone! Averaged over {n_times} runs: \n '
-          f'- Training time: {np.mean(train_time_list):.2f}s ± {np.std(train_time_list):.2f}. \n '
-          f'- Best validation accuracy: {np.mean(best_val_acc_list):.3f} ± {np.std(best_val_acc_list):.3f}. \n'
-          f'- Test accuracy: {np.mean(test_acc_list):.1f} ± {np.std(test_acc_list):.1f}. \n')
-    
-    return best_val_acc_list, test_acc_list, train_time_list
+    return best_val_error, test_error, train_time, perf_per_epoch
