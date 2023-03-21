@@ -522,3 +522,4 @@ class DimeNetPPModel(DimeNetPlusPlus):
             P += output_block(x, rbf, i)
 
         return P.sum(dim=0) if batch is None else scatter(P, batch.batch, dim=0)
+
