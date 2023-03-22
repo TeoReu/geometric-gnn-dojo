@@ -84,7 +84,7 @@ def rewire_dataset_k0hop(dataset, k, p):
 
 
 # define function that allow carbons to fully connect with all atoms and create new dataset
-def carbon_connect(dataset, sparse_dataset, threshold=3, p=0):
+def carbon_connect(dataset, sparse_dataset, p, threshold=3):
     new_dataset = []
     counter_dataset = []
     idx = 0
@@ -152,7 +152,7 @@ def carbon_connect(dataset, sparse_dataset, threshold=3, p=0):
 
 
 # define function that only allow carbons to fully connect and create new dataset
-def carbon_only_connect(dataset, sparse_dataset, threshold=3, p=0):
+def carbon_only_connect(dataset, sparse_dataset, p, threshold=3):
     new_dataset = []
     counter_dataset = []
     idx = 0
@@ -220,7 +220,7 @@ def carbon_only_connect(dataset, sparse_dataset, threshold=3, p=0):
     return new_dataset, counter_dataset
 
 
-def carbon_rewiring(dataset, sparse_dataset, type):
+def carbon_rewiring(dataset, sparse_dataset, type, p):
     train_dataset_sparse = sparse_dataset[:1000]
     val_dataset_sparse = sparse_dataset[1000:2000]
     test_dataset_sparse = sparse_dataset[2000:3000]
@@ -230,16 +230,94 @@ def carbon_rewiring(dataset, sparse_dataset, type):
     test_dataset = dataset[2000:3000]
 
     if type == "c2a":
-        train_dataset_carbon, train_dataset_counter = carbon_connect(train_dataset, train_dataset_sparse)
-        val_dataset_carbon, val_dataset_counter = carbon_connect(val_dataset, val_dataset_sparse)
-        test_dataset_carbon, test_dataset_counter = carbon_connect(test_dataset, test_dataset_sparse)
+        train_dataset_carbon, train_dataset_counter = carbon_connect(train_dataset, train_dataset_sparse, p)
+        val_dataset_carbon, val_dataset_counter = carbon_connect(val_dataset, val_dataset_sparse, p)
+        test_dataset_carbon, test_dataset_counter = carbon_connect(test_dataset, test_dataset_sparse, p)
     else:
-        train_dataset_carbon, train_dataset_counter_only = carbon_only_connect(train_dataset, train_dataset_sparse)
-        val_dataset_carbon, val_dataset_counter_only = carbon_only_connect(val_dataset, val_dataset_sparse)
-        test_dataset_carbon, test_dataset_counter_only = carbon_only_connect(test_dataset, test_dataset_sparse)
+        train_dataset_carbon, train_dataset_counter_only = carbon_only_connect(train_dataset, train_dataset_sparse, p)
+        val_dataset_carbon, val_dataset_counter_only = carbon_only_connect(val_dataset, val_dataset_sparse, p)
+        test_dataset_carbon, test_dataset_counter_only = carbon_only_connect(test_dataset, test_dataset_sparse, p)
 
     train_loader_carbon = DataLoader(train_dataset_carbon, batch_size=32, shuffle=True)
     val_loader_carbon = DataLoader(val_dataset_carbon, batch_size=32, shuffle=False)
     test_loader_carbon = DataLoader(test_dataset_carbon, batch_size=32, shuffle=False)
 
     return  train_loader_carbon, val_loader_carbon,   test_loader_carbon
+
+
+def carbon_processing(dataset, sparse_dataset, type, p):
+    if type == "c2a":
+        dataset_carbon, _ = carbon_connect(dataset, sparse_dataset, p)
+    else:
+        dataset_carbon, _ = carbon_only_connect(dataset, sparse_dataset, p)
+
+    return dataset_carbon
+
+
+def gumbel_connect(full_dataset, sparse_dataset, carbon_dataset):
+    gumbel_dataset = []
+
+    for i in range(len(full_dataset)):
+
+        full_data = copy.copy(full_dataset[i])
+        sparse_data = copy.copy(sparse_dataset[i])
+        carbon_data = copy.copy(carbon_dataset[i])
+
+        extra_edge_num = carbon_data.edge_index.shape[1] - sparse_data.edge_index.shape[1]
+        extra_edge_num = extra_edge_num // 2
+
+        if extra_edge_num == 0:
+            gumbel_dataset.append(sparse_data)
+
+        else:
+
+            # pick out all the virtual edges in the graph
+            virtual_edges_index = torch.index_select(full_data.edge_index, 1, torch.tensor(
+                [j for j in range(full_data.edge_index.shape[1]) if torch.sum(full_data.edge_attr[j]) == 0]))
+
+            # create countering Gumbel random connection graph dataset
+
+            virtual_edges_list = [virtual_edges_index[:, j].unsqueeze(dim=1) for j in
+                                  range(virtual_edges_index.shape[1])]
+            scores = []
+            dis_cube_list = []
+            # do Gumbel-max trick
+            for edge in virtual_edges_list:
+                d_ij = torch.sum(torch.pow((full_data.pos[edge[0]] - full_data.pos[edge[1]]), 2), -1).reshape(1)
+                d_ij_cube = torch.pow(d_ij, -3)
+                dis_cube_list.append(d_ij_cube)
+            dis_cube_list = torch.cat(dis_cube_list).tolist()
+
+            var = torch.var(torch.tensor(dis_cube_list))
+            for c in dis_cube_list:
+                z = -torch.log(-torch.log(torch.rand(1)))
+                score = c / var + z
+
+                scores.append(score)
+            # remove duplicated edges
+            sorted_dist_list, indices_sort = torch.sort(torch.tensor(dis_cube_list))
+            sorted_dist_list = sorted_dist_list.tolist()
+            indices_sort = indices_sort.tolist()
+            sorted_score_list = [scores[j] for j in indices_sort]
+
+            half_sorted_dist = sorted_dist_list[::2]
+            half_indices_sort = indices_sort[::2]
+            half_score_sorted = sorted_score_list[::2]
+
+            # select top k edges
+            selected = torch.topk(torch.tensor(half_score_sorted), extra_edge_num).indices
+            selected_indices = [half_indices_sort[j] for j in selected]
+            sampled_edges = [virtual_edges_list[i] for i in selected_indices]
+
+            # add both edge directions to sparse graph
+            sampled_edge_index = []
+            for sample in sampled_edges:
+                sampled_edge_index.append(sample)
+                sampled_edge_index.append(torch.tensor([sample[1], sample[0]]).unsqueeze(dim=1))
+
+            sampled_edge_index = torch.cat(sampled_edge_index, dim=1)
+            sparse_data.edge_index = torch.cat((sparse_data.edge_index, sampled_edge_index), dim=1)
+            sparse_data.edge_attr = carbon_data.edge_attr
+            gumbel_dataset.append(sparse_data)
+
+    return gumbel_dataset
