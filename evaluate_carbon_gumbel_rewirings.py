@@ -39,7 +39,7 @@ import pandas as pd
 from src.qm9_models import DimeNetPPModel, GVPGNNModel
 from src.utils.other import CompleteGraph, SetTarget, seed
 from src.utils.train_utils import run_experiment
-from src.utils.rewire_utils import rewire_dataset_k0hop, carbon_rewiring, carbon_connect, gumbel_connect
+from src.utils.rewire_utils import rewire_dataset_k0hop, carbon_rewiring, carbon_rewiring_gumbel
 
 
 def main(args):
@@ -73,22 +73,13 @@ def main(args):
         std = sparse_dataset.data.y.std(dim=0, keepdim=True)
         sparse_dataset.data.y = (sparse_dataset.data.y - mean) / std
 
+    print("Start rewiring")
     if args.rewire == "gumbel+c2a":
-        c2a_dataset = carbon_connect(dataset, sparse_dataset, args.p)
-        gumbel_dataset = gumbel_connect(dataset, sparse_dataset, c2a_dataset)
+        train_loader, val_loader, test_loader = carbon_rewiring_gumbel(dataset, sparse_dataset, "c2a", args.p)
     else:
-        c2a_dataset = carbon_connect(dataset, sparse_dataset, args.p)
-        gumbel_dataset = gumbel_connect(dataset, sparse_dataset, c2a_dataset)
+        train_loader, val_loader, test_loader = carbon_rewiring_gumbel(dataset, sparse_dataset, "c2c", args.p)
+    print("End rewiring")
 
-
-    train_dataset = gumbel_dataset[:1000]
-    val_dataset = gumbel_dataset[1000:2000]
-    test_dataset = gumbel_dataset[2000:3000]
-
-
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
     if args.model == "gvp":
         model = GVPGNNModel(num_layers=2, emb_dim=64, in_dim=11, out_dim=1)
@@ -115,7 +106,7 @@ def main(args):
 
     DF_RESULTS = DF_RESULTS.loc[DF_RESULTS["Epoch"] % 10 == 0]
 
-    DF_RESULTS.to_csv('results_carbon_gumbel.csv', mode='a', index=False, header=False)
+    DF_RESULTS.to_csv('results_carbon.cvs', mode='a', index=False, header=False)
     return True
 
 if __name__ == "__main__":

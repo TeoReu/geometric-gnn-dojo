@@ -244,6 +244,35 @@ def carbon_rewiring(dataset, sparse_dataset, type, p):
 
     return  train_loader_carbon, val_loader_carbon,   test_loader_carbon
 
+def carbon_rewiring_gumbel(dataset, sparse_dataset, type, p):
+    train_dataset_sparse = sparse_dataset[:1000]
+    val_dataset_sparse = sparse_dataset[1000:2000]
+    test_dataset_sparse = sparse_dataset[2000:3000]
+
+    train_dataset = dataset[:1000]
+    val_dataset = dataset[1000:2000]
+    test_dataset = dataset[2000:3000]
+
+    if type == "c2a":
+        train_dataset_carbon, train_dataset_counter = carbon_connect(train_dataset, train_dataset_sparse, p)
+        val_dataset_carbon, val_dataset_counter = carbon_connect(val_dataset, val_dataset_sparse, p)
+        test_dataset_carbon, test_dataset_counter = carbon_connect(test_dataset, test_dataset_sparse, p)
+    else:
+        train_dataset_carbon, train_dataset_counter_only = carbon_only_connect(train_dataset, train_dataset_sparse, p)
+        val_dataset_carbon, val_dataset_counter_only = carbon_only_connect(val_dataset, val_dataset_sparse, p)
+        test_dataset_carbon, test_dataset_counter_only = carbon_only_connect(test_dataset, test_dataset_sparse, p)
+
+    train_dataset_gumbel = gumbel_connect(train_dataset, train_dataset_sparse, train_dataset_carbon)
+    val_dataset_gumbel = gumbel_connect(val_dataset, val_dataset_sparse, val_dataset_carbon)
+    test_dataset_gumbel = gumbel_connect(test_dataset, test_dataset_sparse, test_dataset_carbon)
+
+    train_loader_carbon = DataLoader(train_dataset_gumbel, batch_size=32, shuffle=True)
+    val_loader_carbon = DataLoader(val_dataset_gumbel, batch_size=32, shuffle=False)
+    test_loader_carbon = DataLoader(test_dataset_gumbel, batch_size=32, shuffle=False)
+
+    return  train_loader_carbon, val_loader_carbon,  test_loader_carbon
+
+
 
 def carbon_processing(dataset, sparse_dataset, type, p):
     if type == "c2a":
