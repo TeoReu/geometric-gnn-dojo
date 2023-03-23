@@ -91,7 +91,7 @@ def main(args):
         args.k,
         args.p,
         args.seed,
-        n_epochs=10,
+        n_epochs=100,
     )
 
     RESULTS[args.model] = (best_val_error, test_error, train_time)
