@@ -221,13 +221,13 @@ def carbon_only_connect(dataset, sparse_dataset, p, threshold=3):
 
 
 def carbon_rewiring(dataset, sparse_dataset, type, p):
-    train_dataset_sparse = sparse_dataset[:1000]
-    val_dataset_sparse = sparse_dataset[1000:2000]
-    test_dataset_sparse = sparse_dataset[2000:3000]
+    train_dataset_sparse = sparse_dataset[:11000]
+    val_dataset_sparse = sparse_dataset[11000:12000]
+    test_dataset_sparse = sparse_dataset[12000:13000]
 
-    train_dataset = dataset[:1000]
-    val_dataset = dataset[1000:2000]
-    test_dataset = dataset[2000:3000]
+    train_dataset = dataset[:11000]
+    val_dataset = dataset[11000:12000]
+    test_dataset = dataset[12000:13000]
 
     if type == "c2a":
         train_dataset_carbon, train_dataset_counter = carbon_connect(train_dataset, train_dataset_sparse, p)

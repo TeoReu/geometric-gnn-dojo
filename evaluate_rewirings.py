@@ -67,9 +67,9 @@ def main(args):
     else:
         new_dataset = dataset
 
-    train_dataset = new_dataset[:1000]
-    val_dataset = new_dataset[1000:2000]
-    test_dataset = new_dataset[2000:3000]
+    train_dataset = new_dataset[:11000]
+    val_dataset = new_dataset[11000:12000]
+    test_dataset = new_dataset[12000:13000]
 
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)

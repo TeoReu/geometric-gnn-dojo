@@ -74,15 +74,13 @@ def main(args):
         sparse_dataset.data.y = (sparse_dataset.data.y - mean) / std
 
     if args.rewire == "c2a":
-        train_loader, val_loader, test_loader = carbon_rewiring(dataset, sparse_dataset, "c2a")
+        train_loader, val_loader, test_loader = carbon_rewiring(dataset, sparse_dataset, "c2a", args.p)
     else:
-        train_loader, val_loader, test_loader = carbon_rewiring(dataset, sparse_dataset, "c2c")
+        train_loader, val_loader, test_loader = carbon_rewiring(dataset, sparse_dataset, "c2c", args.p)
 
 
-    if args.model == "gvp":
-        model = GVPGNNModel(num_layers=2, emb_dim=64, in_dim=11, out_dim=1)
-    elif args.model == "dime":
-        model = DimeNetPPModel(num_layers=2, emb_dim=64, in_dim=11, out_dim=1)
+    model = GVPGNNModel(num_layers=2, emb_dim=64, in_dim=11, out_dim=1)
+
 
 
     best_val_error, test_error, train_time, perf_per_epoch = run_experiment(
