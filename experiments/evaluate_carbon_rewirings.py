@@ -39,7 +39,7 @@ import pandas as pd
 from src.qm9_models import DimeNetPPModel, GVPGNNModel
 from src.utils.other import CompleteGraph, SetTarget, seed
 from src.utils.train_utils import run_experiment
-from src.utils.rewire_utils import rewire_dataset_k0hop
+from src.utils.rewire_utils import rewire_dataset_k0hop, carbon_rewiring
 
 
 def main(args):
@@ -53,32 +53,34 @@ def main(args):
         path = './qm9'
         target = 0
 
-        dataset = QM9(path, transform=SetTarget())
+        # Transforms which are applied during data loading:
+        # (1) Fully connect the graphs, (2) Select the target/label
+        transform = T.Compose([CompleteGraph(), SetTarget()])
+
+        # Load the QM9 dataset with the transforms defined
+        dataset = QM9(path, transform=transform)
 
         # Normalize targets per data sample to mean = 0 and std = 1.
         mean = dataset.data.y.mean(dim=0, keepdim=True)
         std = dataset.data.y.std(dim=0, keepdim=True)
         dataset.data.y = (dataset.data.y - mean) / std
-        mean, std = mean[:, target].item(), std[:, target].item()
 
+        # Load QM9 dataset with sparse graphs (by removing the full graphs transform)
+        sparse_dataset = QM9(path, transform=SetTarget())
 
-    if args.rewire == "k0hop":
-        new_dataset = rewire_dataset_k0hop(dataset, args.k, args.p)
+        # Normalize targets per data sample to mean = 0 and std = 1.
+        mean = sparse_dataset.data.y.mean(dim=0, keepdim=True)
+        std = sparse_dataset.data.y.std(dim=0, keepdim=True)
+        sparse_dataset.data.y = (sparse_dataset.data.y - mean) / std
+
+    if args.rewire == "c2a":
+        train_loader, val_loader, test_loader = carbon_rewiring(dataset, sparse_dataset, "c2a", args.p)
     else:
-        new_dataset = dataset
+        train_loader, val_loader, test_loader = carbon_rewiring(dataset, sparse_dataset, "c2c", args.p)
 
-    train_dataset = new_dataset[:1000]
-    val_dataset = new_dataset[1000:2000]
-    test_dataset = new_dataset[2000:3000]
 
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    model = GVPGNNModel(num_layers=2, emb_dim=64, in_dim=11, out_dim=1)
 
-    if args.model == "gvp":
-        model = GVPGNNModel(num_layers=2, emb_dim=64, in_dim=11, out_dim=1)
-    elif args.model == "dime":
-        model = DimeNetPPModel(num_layers=2, emb_dim=64, in_dim=11, out_dim=1)
 
 
     best_val_error, test_error, train_time, perf_per_epoch = run_experiment(
@@ -88,10 +90,10 @@ def main(args):
         val_loader,
         test_loader,
         args.rewire,
-        args.k,
+        'no_k',
         args.p,
         args.seed,
-        n_epochs=10,
+        n_epochs=100,
     )
 
     RESULTS[args.model] = (best_val_error, test_error, train_time)
@@ -100,15 +102,14 @@ def main(args):
 
     DF_RESULTS = DF_RESULTS.loc[DF_RESULTS["Epoch"] % 10 == 0]
 
-    DF_RESULTS.to_csv('results.cvs', mode='a', index=False, header=False)
+    DF_RESULTS.to_csv('results_carbon.cvs', mode='a', index=False, header=False)
     return True
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str)
-    parser.add_argument('--rewire', type=str)
+    parser.add_argument('--rewire', default="c2a",type=str)
     parser.add_argument('--p', type=float)
-    parser.add_argument('--k', type=int)
     parser.add_argument('--seed', type=int)
 
 
